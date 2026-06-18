@@ -170,8 +170,29 @@ init_peer() {
     echo -e "${GREEN} ¡Conexión establecida con éxito! Tu interfaz WireGuard local es wg0.${NC}"
 }
 
+# MODO 4: Instalar la herramienta de forma global en el PATH
+install_to_path() {
+    local target_path="/usr/local/bin/wg-manager"
+    
+    echo -e "${BLUE} Instalando wg-manager en el PATH del sistema...${NC}"
+    
+    # Copiar el script actual al directorio de binarios globales
+    cp "$0" "$target_path"
+    chmod +x "$target_path"
+    
+    if [ -x "$target_path" ]; then
+        echo -e "${GREEN} ¡Instalación completada! Ahora puedes usar 'wg-manager' desde cualquier directorio.${NC}"
+    else
+        echo -e "${RED} Error al intentar instalar la herramienta.${NC}"
+        exit 1
+    fi
+}
+
 # Menú Principal de Banderas (Flags)
 case "$1" in
+    --install)
+        install_to_path
+        ;;
     --init-server)
         init_server "$2"
         ;;
