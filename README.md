@@ -1,64 +1,64 @@
 # WireGuard CLI Manager (wg-manager)
 
-Una herramienta integral y simétrica escrita en Bash para automatizar por completo el despliegue de redes VPN basadas en WireGuard. Este script elimina la complejidad de configurar interfaces de red, enrutamiento de Firewall y el intercambio manual de llaves criptográficas, permitiendo levantar infraestructuras Site-to-Peer o redes IoT en cuestión de segundos.
+A comprehensive and symmetric tool written in Bash to fully automate the deployment of WireGuard-based VPN networks. This script eliminates the complexity of configuring network interfaces, firewall routing, and the manual exchange of cryptographic keys, allowing you to deploy Site-to-Peer infrastructures or IoT networks in a matter of seconds.
 
 ---
 
-## Características Principales
+## Key Features
 
-* **Instalación Global:** Permite añadir la herramienta directamente al PATH del sistema para ser ejecutada desde cualquier directorio.
-* **Simetría Total (Servidor/Cliente):** El mismo script se utiliza para inicializar el nodo central o para acoplar un nodo cliente de forma automática.
-* **Gestión Inteligente de Permisos:** Identifica al usuario real detrás de sudo para exportar las configuraciones directamente a su pantalla principal con los permisos correctos, evitando bloqueos de Root.
-* **Enrutamiento Automatizado:** Detecta de forma autónoma la interfaz de red pública nativa (eth0, enp3s0, etc.) y aplica reglas dinámicas de iptables (NAT/MASQUERADE) para permitir la navegación segura.
-* **Aprovisionamiento Rápido por QR:** Genera códigos QR directamente en la consola para conectar dispositivos móviles al instante mediante escaneo.
-* **Multi-Distribución:** Soporte nativo para sistemas basados en Debian/Kali, Arch Linux y RHEL/Fedora.
-
----
-
-## Requisitos Previos
-
-* Sistema operativo Linux (Debian, Kali, Arch, etc.).
-* Privilegios de administrador (sudo).
+* **Global Installation:** Allows adding the tool directly to the system's PATH to be executed from any directory.
+* **Total Symmetry (Server/Client):** The exact same script is used to initialize the central node or to automatically hook up a client node.
+* **Smart Permission Management:** Identifies the real user behind sudo to export configurations directly to their main desktop screen with the correct permissions, preventing root-access lockouts.
+* **Automated Routing:** Autodetects the native public network interface (eth0, enp3s0, etc.) and applies dynamic iptables rules (NAT/MASQUERADE) to enable secure web browsing.
+* **Fast Provisioning via QR:** Generates QR codes directly in the terminal to instantly connect mobile devices by scanning.
+* **Multi-Distribution:** Native support for systems based on Debian/Kali, Arch Linux, and RHEL/Fedora.
 
 ---
 
-## Instalación y Modo de Uso
+## Prerequisites
 
-### 0. Instalación en el Sistema (Recomendado)
-Para poder usar la herramienta de forma global desde cualquier ruta de la terminal sin el `./`, otorgue permisos de ejecución al script original e instálelo:
+* Linux Operating System (Debian, Kali, Arch, etc.).
+* Administrative privileges (sudo).
+
+---
+
+## Installation and Usage
+
+### 0. System Installation (Recommended)
+To use the tool globally from any terminal path without using ./, grant execution permissions to the original script and install it:
 ```bash
 chmod +x wg-manager.sh
 sudo ./wg-manager.sh --install
 ```
 
-A partir de este momento, puede invocar la herramienta en cualquier directorio simplemente usando wg-manager.
+From this point forward, you can invoke the tool in any directory simply by running wg-manager.
 
-### 1. Inicializar el Servidor VPN
-Ejecute este comando en la máquina que actuará como el servidor central. Levantará la interfaz wg0 y activará el IP Forwarding en el kernel.
-
+### 1. Initialize the VPN Server
+Run this command on the machine that will act as the central server. This will bring up the wg0 interface and enable IP Forwarding in the kernel.
 ```bash
-sudo wg-manager --init-server [puerto_opcional]
-# Por defecto utiliza el puerto 51820
+sudo wg-manager --init-server [optional_port]
+# Uses port 51820 by default
 ```
 
-### 2. Registrar un Nuevo Cliente (Peer)
-Ejecute este comando en el servidor para autorizar un nuevo dispositivo. Reemplace la IP por la dirección pública real de su servidor.
+### 2. Register a New Client (Peer)
+Run this command on the server to authorize a new device. Replace the IP with your server's real public IP address.
 
 ```bash
-sudo wg-manager --add-peer [nombre_cliente] [ip_privada_vpn] [ip_publica_servidor:puerto]
+sudo wg-manager --add-peer [client_name] [private_vpn_ip] [public_server_ip:port]
 ```
 
-Ejemplo:
+Example:
 
 ```bash
-sudo wg-manager --add-peer mi-laptop 10.0.0.2 192.168.1.27:51820
+sudo wg-manager --add-peer my-laptop 10.0.0.2 192.168.1.27:51820
 ```
-Esto registrará al cliente sin detener el servicio del servidor. Detectará el idioma del sistema y exportará un archivo portable listo para usar en su Escritorio (ej: mi-laptop.conf). Adicionalmente desplegará un código QR en la terminal para un aprovisionamiento rápido desde dispositivos móviles.
+>[!NOTE]
+>This will register the client without stopping the server service. It will autodetect the system language and export a portable file ready to use on your Desktop (e.g., my-laptop.conf). Additionally, it will display a QR code in the terminal for fast provisioning from mobile devices.
 
-### 3. Configurar el Cliente (Peer Remoto)
-Transfiera el archivo .conf generado y una copia de este script a la máquina cliente (asegúrese de haber corrido primero el comando --install en el cliente si desea usar el comando global) y ejecute:
+### 3. Configure the Client (Remote Peer)
+Transfer the generated .conf file and a copy of this script to the client machine (make sure you have run the --install command on the client first if you want to use the global command) and execute:
 
 ```bash
-sudo wg-manager --init-peer /ruta/al/archivo_cliente.conf
+sudo wg-manager --init-peer /path/to/client_file.conf
 ```
-El script instalará las dependencias necesarias de forma local, importará el perfil y encenderá el túnel de inmediato.
+The script will locally install the required dependencies, import the profile, and bring up the tunnel immediately.
