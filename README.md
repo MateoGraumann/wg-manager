@@ -1,64 +1,97 @@
 # WireGuard CLI Manager (wg-manager)
 
-A comprehensive and symmetric tool written in Bash to fully automate the deployment of WireGuard-based VPN networks. This script eliminates the complexity of configuring network interfaces, firewall routing, and the manual exchange of cryptographic keys, allowing you to deploy Site-to-Peer infrastructures or IoT networks in a matter of seconds.
+A Bash CLI to deploy and manage WireGuard VPNs. One script works as both server and client: it handles keys, NAT/routing, peer provisioning, and systemd integration.
 
 ---
 
 ## Key Features
 
-* **Global Installation:** Allows adding the tool directly to the system's PATH to be executed from any directory.
-* **Total Symmetry (Server/Client):** The exact same script is used to initialize the central node or to automatically hook up a client node.
-* **Smart Permission Management:** Identifies the real user behind sudo to export configurations directly to their main desktop screen with the correct permissions, preventing root-access lockouts.
-* **Automated Routing:** Autodetects the native public network interface (eth0, enp3s0, etc.) and applies dynamic iptables rules (NAT/MASQUERADE) to enable secure web browsing.
-* **Fast Provisioning via QR:** Generates QR codes directly in the terminal to instantly connect mobile devices by scanning.
-* **Multi-Distribution:** Native support for systems based on Debian/Kali, Arch Linux, and RHEL/Fedora.
+* **Global installation** — install to `/usr/local/bin` and run `wg-manager` from anywhere.
+* **Server/client symmetry** — same script for the central node or a remote peer.
+* **Hot-reload** — add or remove peers without restarting the WireGuard service.
+* **Smart permissions** — exports client configs to the real user's Desktop (not root-owned).
+* **Automated routing** — detects the public interface and applies iptables NAT/MASQUERADE rules.
+* **QR provisioning** — prints a terminal QR code when `qrencode` is available.
+* **Multi-distribution** — Debian/Kali, Arch, and RHEL/Fedora (auto-installs dependencies).
+
+**Defaults:** VPN subnet `10.0.0.1/24`, listen port `51820`. Client profiles use full-tunnel (`0.0.0.0/0`), DNS `1.1.1.1` / `8.8.8.8`, and `PersistentKeepalive = 25`.
 
 ---
 
 ## Prerequisites
 
-* Linux Operating System (Debian, Kali, Arch, etc.).
-* Administrative privileges (sudo).
+* Linux (Debian, Kali, Arch, Fedora, etc.)
+* Root privileges (`sudo`)
 
 ---
 
-## Installation and Usage
+## Command Reference
 
-### 0. System Installation (Recommended)
-To use the tool globally from any terminal path without using ./, grant execution permissions to the original script and install it:
+| Command | Description |
+|---------|-------------|
+| `--install` | Copy the script to `/usr/local/bin/wg-manager` |
+| `--init-server [port]` | Set up the VPN server (`wg0`, IP forwarding, NAT) |
+| `--add-peer <name> <vpn_ip> <server_ip:port>` | Register a peer and export a client `.conf` |
+| `--init-peer <config.conf>` | Import a client profile and bring up `wg0` |
+| `--remove-peer <name>` | Revoke a peer, disconnect it, and remove its Desktop `.conf` |
+| `--show` | Show server info and peer status (handshake, traffic) |
+
+---
+
+## Quick Start
+
+### 0. Install (recommended)
+
 ```bash
 chmod +x wg-manager.sh
 sudo ./wg-manager.sh --install
 ```
 
-From this point forward, you can invoke the tool in any directory simply by running wg-manager.
-
-### 1. Initialize the VPN Server
-Run this command on the machine that will act as the central server. This will bring up the wg0 interface and enable IP Forwarding in the kernel.
-```bash
-sudo wg-manager --init-server [optional_port]
-# Uses port 51820 by default
-```
-
-### 2. Register a New Client (Peer)
-Run this command on the server to authorize a new device. Replace the IP with your server's real public IP address.
+### 1. Initialize the server
 
 ```bash
-sudo wg-manager --add-peer [client_name] [private_vpn_ip] [public_server_ip:port]
+sudo wg-manager --init-server
+# Optional: sudo wg-manager --init-server 51821
 ```
 
-Example:
+Brings up `wg0`, enables IP forwarding, and enables `wg-quick@wg0` on boot.
+
+### 2. Add a client
+
+Run on the **server**. Use your server's **public** IP and an unused address in the VPN range (e.g. `10.0.0.2`).
 
 ```bash
-sudo wg-manager --add-peer my-laptop 10.0.0.2 192.168.1.27:51820
+sudo wg-manager --add-peer my-laptop 10.0.0.2 203.0.113.10:51820
 ```
->[!NOTE]
->This will register the client without stopping the server service. It will autodetect the system language and export a portable file ready to use on your Desktop (e.g., my-laptop.conf). Additionally, it will display a QR code in the terminal for fast provisioning from mobile devices.
 
-### 3. Configure the Client (Remote Peer)
-Transfer the generated .conf file and a copy of this script to the client machine (make sure you have run the --install command on the client first if you want to use the global command) and execute:
+Validates duplicate peer names and IPs. Registers the peer via hot-reload, saves `my-laptop.conf` to the Desktop, and shows a QR code if `qrencode` is installed.
+
+### 3. Connect the client
+
+Transfer the `.conf` to the client machine and run:
 
 ```bash
-sudo wg-manager --init-peer /path/to/client_file.conf
+sudo wg-manager --init-peer /path/to/my-laptop.conf
 ```
-The script will locally install the required dependencies, import the profile, and bring up the tunnel immediately.
+
+Installs WireGuard if needed, imports the profile, and enables `wg-quick@wg0` on boot.
+
+---
+
+## Server Management
+
+### Check status
+
+```bash
+sudo wg-manager --show
+```
+
+Shows the server VPN address, listen port, and a table of registered peers with last handshake and Rx/Tx traffic.
+
+### Remove a peer
+
+```bash
+sudo wg-manager --remove-peer my-laptop
+```
+
+Revokes the peer from the running interface and updates `wg0.conf` without restarting the service. Deletes `my-laptop.conf` from the Desktop if present.
