@@ -24,6 +24,58 @@ die() {
 # Require root
 [ "$EUID" -ne 0 ] && die "Root privileges required. Run with sudo."
 
+valid_ipv4() {
+    local ip=$1
+    local IFS='.'
+    local -a octets=($ip)
+
+    [ "${#octets[@]}" -eq 4 ] || return 1
+
+    local octet
+    for octet in "${octets[@]}"; do
+        [[ "$octet" =~ ^[0-9]+$ ]] || return 1
+        (( octet >= 0 && octet <= 255 )) || return 1
+    done
+    return 0
+}
+
+parse_vpn_cidr() {
+    local cidr=$1
+    local ip prefix
+
+    [[ "$cidr" =~ ^(.+)/([0-9]+)$ ]] || return 1
+    ip="${BASH_REMATCH[1]}"
+    prefix="${BASH_REMATCH[2]}"
+
+    [ "$prefix" = "24" ] || return 1
+    valid_ipv4 "$ip" || return 1
+    return 0
+}
+
+read_server_vpn_cidr() {
+    local conf_file=$1
+    grep '^Address = ' "$conf_file" | awk '{print $3}' | head -n 1
+}
+
+validate_peer_subnet() {
+    local client_ip=$1
+    local server_cidr=$2
+    local server_ip="${server_cidr%/*}"
+    local IFS='.'
+    local -a client_octets=($client_ip)
+    local -a server_octets=($server_ip)
+
+    parse_vpn_cidr "$server_cidr" || return 1
+    [ "$client_ip" = "$server_ip" ] && return 1
+
+    [ "${client_octets[0]}" = "${server_octets[0]}" ] || return 1
+    [ "${client_octets[1]}" = "${server_octets[1]}" ] || return 1
+    [ "${client_octets[2]}" = "${server_octets[2]}" ] || return 1
+
+    (( client_octets[3] >= 2 && client_octets[3] <= 254 )) || return 1
+    return 0
+}
+
 # Install WireGuard if missing (distro-aware)
 install_wireguard() {
     if ! command -v wg &> /dev/null; then
@@ -42,8 +94,13 @@ install_wireguard() {
 
 # MODE 1: Initialize server
 init_server() {
-    local port=${1:-51820}
-    local server_ip_range="10.0.0.1/24"
+    local public_ipv4=$1
+    local vpn_cidr=$2
+    local port=$3
+
+    [ -z "$public_ipv4" ] && die "Public IPv4 address required."
+    valid_ipv4 "$public_ipv4" || die "Invalid public IPv4 address: $public_ipv4"
+    parse_vpn_cidr "$vpn_cidr" || die "Invalid VPN CIDR: $vpn_cidr (expected x.x.x.x/24)"
 
     install_wireguard
 
@@ -65,10 +122,11 @@ init_server() {
     # Write wg0.conf with NAT rules
     cat <<EOF > /etc/wireguard/wg0.conf
 [Interface]
-Address = $server_ip_range
+Address = $vpn_cidr
 ListenPort = $port
 PrivateKey = $priv_key
 SaveConfig = false
+# Endpoint = $public_ipv4
 
 # Routing rules on interface up/down
 PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o $public_iface -j MASQUERADE
@@ -87,14 +145,26 @@ EOF
 add_peer() {
     local client_name=$1
     local client_ip=$2
-    local server_endpoint=$3 # Format: PUBLIC_IP:PORT
+    local conf_file="/etc/wireguard/wg0.conf"
 
-    [ ! -f /etc/wireguard/wg0.conf ] && die "Server not configured. Run --init-server first."
+    [ ! -f "$conf_file" ] && die "Server not configured. Run --init-server first."
+
+    local server_cidr=$(read_server_vpn_cidr "$conf_file")
+    [ -z "$server_cidr" ] && die "Server VPN address not found in config."
+
+    valid_ipv4 "$client_ip" || die "Invalid IPv4 address: $client_ip"
+    validate_peer_subnet "$client_ip" "$server_cidr" || die "Peer IP does not belong to server subnet"
+
+    local public_ip=$(grep '^# Endpoint = ' "$conf_file" | awk -F'= ' '{print $2}' | tr -d ' ')
+    local port=$(grep '^ListenPort = ' "$conf_file" | awk '{print $3}')
+    [ -z "$public_ip" ] && die "Server endpoint not configured. Re-run --init-server."
+    [ -z "$port" ] && die "ListenPort not found in server config."
+    local server_endpoint="${public_ip}:${port}"
 
     # check if peer already exists
-    grep -q "# Name = $client_name$" /etc/wireguard/wg0.conf && die "Peer '$client_name' already exists."
+    grep -q "# Name = $client_name$" "$conf_file" && die "Peer '$client_name' already exists."
     # check if IP is already assigned
-    grep -q "AllowedIPs = $client_ip/32" /etc/wireguard/wg0.conf && die "IP $client_ip is already assigned."
+    grep -q "AllowedIPs = $client_ip/32" "$conf_file" && die "IP $client_ip is already assigned."
 
     local real_user=${SUDO_USER:-$USER}
     local user_desktop=$(su - $real_user -c 'xdg-user-dir DESKTOP')
@@ -120,7 +190,7 @@ EOF
     cat <<EOF > "$output_file"
 [Interface]
 PrivateKey = $client_priv_key
-Address = $client_ip/24
+Address = $client_ip/${server_cidr#*/}
 DNS = 1.1.1.1, 8.8.8.8
 
 [Peer]
@@ -258,8 +328,8 @@ install_to_path() {
 
 show_usage() {
     msg_warning "Usage:"
-    echo "  $0 --init-server [port]"
-    echo "  $0 --add-peer <name> <vpn_ip> <server_ip:port>"
+    echo "  $0 --init-server <public_ipv4> [vpn_ip/cidr] [port]"
+    echo "  $0 --add-peer <name> <vpn_ip>"
     echo "  $0 --init-peer <config.conf>"
     echo "  $0 --remove-peer <name>"
     echo "  $0 --show"
@@ -272,15 +342,30 @@ case "$1" in
         install_to_path
         ;;
     --init-server)
-        init_server "$2"
+        if [ -z "$2" ]; then
+            msg_error "Public IPv4 address required."
+            show_usage
+            exit 1
+        fi
+        if [[ "$3" == */* ]]; then
+            vpn_cidr="$3"
+            port=${4:-51820}
+        elif [ -n "$3" ]; then
+            vpn_cidr="10.0.0.1/24"
+            port="$3"
+        else
+            vpn_cidr="10.0.0.1/24"
+            port=51820
+        fi
+        init_server "$2" "$vpn_cidr" "$port"
         ;;
     --add-peer)
-        if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then
+        if [ -z "$2" ] || [ -z "$3" ]; then
             msg_error "Missing arguments for --add-peer."
             show_usage
             exit 1
         fi
-        add_peer "$2" "$3" "$4"
+        add_peer "$2" "$3"
         ;;
     --init-peer)
         if [ -z "$2" ]; then
