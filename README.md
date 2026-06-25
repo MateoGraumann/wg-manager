@@ -14,7 +14,7 @@ A Bash CLI to deploy and manage WireGuard VPNs. One script works as both server 
 * **QR provisioning** — prints a terminal QR code when `qrencode` is available.
 * **Multi-distribution** — Debian/Kali, Arch, and RHEL/Fedora (auto-installs dependencies).
 
-**Defaults:** VPN subnet `10.0.0.1/24`, listen port `51820`. Client profiles use full-tunnel (`0.0.0.0/0`), DNS `1.1.1.1` / `8.8.8.8`, and `PersistentKeepalive = 25`.
+**Defaults:** VPN subnet `10.0.0.1/24` (configurable at init), listen port `51820`. Client profiles use full-tunnel (`0.0.0.0/0`), DNS `1.1.1.1` / `8.8.8.8`, and `PersistentKeepalive = 25`.
 
 ---
 
@@ -30,8 +30,8 @@ A Bash CLI to deploy and manage WireGuard VPNs. One script works as both server 
 | Command | Description |
 |---------|-------------|
 | `--install` | Copy the script to `/usr/local/bin/wg-manager` |
-| `--init-server [port]` | Set up the VPN server (`wg0`, IP forwarding, NAT) |
-| `--add-peer <name> <vpn_ip> <server_ip:port>` | Register a peer and export a client `.conf` |
+| `--init-server <public_ipv4> [vpn_ip/cidr] [port]` | Set up the VPN server (`wg0`, IP forwarding, NAT) |
+| `--add-peer <name> <vpn_ip>` | Register a peer and export a client `.conf` |
 | `--init-peer <config.conf>` | Import a client profile and bring up `wg0` |
 | `--remove-peer <name>` | Revoke a peer, disconnect it, and remove its Desktop `.conf` |
 | `--show` | Show server info and peer status (handshake, traffic) |
@@ -50,21 +50,24 @@ sudo ./wg-manager.sh --install
 ### 1. Initialize the server
 
 ```bash
-sudo wg-manager --init-server
-# Optional: sudo wg-manager --init-server 51821
+sudo wg-manager --init-server 203.0.113.10
+# Custom port:       sudo wg-manager --init-server 203.0.113.10 51821
+# Custom VPN subnet: sudo wg-manager --init-server 203.0.113.10 192.168.50.1/24
+# Both:              sudo wg-manager --init-server 203.0.113.10 192.168.50.1/24 51821
 ```
 
-Brings up `wg0`, enables IP forwarding, and enables `wg-quick@wg0` on boot.
+Brings up `wg0`, stores the public endpoint and VPN `Address` in `wg0.conf`, enables IP forwarding, and enables `wg-quick@wg0` on boot. Only `/24` subnets are supported.
 
 ### 2. Add a client
 
-Run on the **server**. Use your server's **public** IP and an unused address in the VPN range (e.g. `10.0.0.2`).
+Run on the **server**. Use an unused address in the server's VPN `/24` (excluding `.0`, `.255`, and the server IP).
 
 ```bash
-sudo wg-manager --add-peer my-laptop 10.0.0.2 203.0.113.10:51820
+sudo wg-manager --add-peer my-laptop 10.0.0.2
+# With custom subnet 192.168.50.1/24: sudo wg-manager --add-peer phone 192.168.50.2
 ```
 
-Validates duplicate peer names and IPs. Registers the peer via hot-reload, saves `my-laptop.conf` to the Desktop, and shows a QR code if `qrencode` is installed.
+Validates peer name, IP format, and subnet. The client endpoint is built automatically from the server's stored public IP and listen port.
 
 ### 3. Connect the client
 
